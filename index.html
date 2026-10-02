@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Chroma Frame AR</title>
     
     <!-- MediaPipe Hands CDN -->
@@ -16,17 +16,25 @@
             box-sizing: border-box;
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
             background-color: #0c0d12;
             color: #ffffff;
-            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            position: fixed;
+            touch-action: none;
         }
 
         .video-container {
-            position: absolute;
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 100vw;
             height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
         }
 
         .input_video {
@@ -48,16 +56,57 @@
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover;
             transform: scaleX(-1); /* Mirror */
             z-index: 5;
+        }
+
+        /* Top Controls (Fullscreen button) */
+        #controls {
+            position: absolute;
+            top: max(16px, env(safe-area-inset-top, 16px));
+            left: max(16px, env(safe-area-inset-left, 16px));
+            z-index: 15;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(12, 13, 18, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.9);
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 11px;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            transition: all 0.2s ease;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .control-btn:hover {
+            border-color: rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+        }
+
+        .control-btn:active {
+            transform: scale(0.96);
         }
 
         /* Clean HUD Overlay */
         #hud {
             position: absolute;
-            top: 24px;
-            right: 24px;
+            top: max(16px, env(safe-area-inset-top, 16px));
+            right: max(16px, env(safe-area-inset-right, 16px));
             z-index: 10;
             display: flex;
             flex-direction: column;
@@ -76,9 +125,10 @@
             border-radius: 4px;
             display: flex;
             justify-content: space-between;
-            gap: 20px;
-            min-width: 150px;
+            gap: 16px;
+            min-width: 140px;
             backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
         }
 
         .hud-item span.val {
@@ -96,6 +146,8 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
+            padding: 20px;
+            text-align: center;
             transition: opacity 0.5s ease;
         }
 
@@ -113,6 +165,8 @@
             color: rgba(255, 255, 255, 0.4);
             margin-bottom: 32px;
             letter-spacing: 1px;
+            max-width: 320px;
+            line-height: 1.5;
         }
 
         .start-btn {
@@ -126,6 +180,7 @@
             text-transform: uppercase;
             letter-spacing: 2px;
             transition: all 0.3s ease;
+            touch-action: manipulation;
         }
 
         .start-btn:hover {
@@ -134,8 +189,8 @@
         }
 
         .hidden {
-            opacity: 0;
-            pointer-events: none;
+            opacity: 0 !important;
+            pointer-events: none !important;
         }
     </style>
 </head>
@@ -148,23 +203,36 @@
         <button class="start-btn" id="startBtn">Enter Experience</button>
     </div>
 
+    <!-- UI Controls (Fullscreen button) -->
+    <div id="controls" class="hidden">
+        <button id="fullscreenBtn" class="control-btn" aria-label="Toggle Fullscreen" title="Toggle Fullscreen">
+            <svg id="fsIconExpand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+            </svg>
+            <svg id="fsIconCompress" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+            </svg>
+            <span id="fsText">FULLSCREEN</span>
+        </button>
+    </div>
+
     <div class="video-container">
-        <video class="input_video" autoplay playsinline></video>
+        <video class="input_video" autoplay playsinline muted></video>
         <canvas id="mainCanvas"></canvas>
     </div>
 
     <!-- UI Overlay -->
     <div id="hud" class="hidden">
         <div class="hud-item">
-            <span>Hands Detected</span>
+            <span>Hands</span>
             <span class="val" id="ui-hands">0</span>
         </div>
         <div class="hud-item">
-            <span>Frame State</span>
+            <span>State</span>
             <span class="val" id="ui-mode">Normal</span>
         </div>
         <div class="hud-item">
-            <span>System FPS</span>
+            <span>FPS</span>
             <span class="val" id="ui-fps">0</span>
         </div>
     </div>
@@ -184,8 +252,15 @@ const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true
 let width = window.innerWidth;
 let height = window.innerHeight;
 
-// Grid settings - 280 columns for sharp halftone resolution
-const targetGridWidth = 280;
+// Grid settings - target columns for halftone resolution
+const targetGridWidth = 240;
+let dotSpacing = 7;
+
+// Aspect ratio / Cover projection parameters
+let renderWidth = width;
+let renderHeight = height;
+let offsetX = 0;
+let offsetY = 0;
 
 let time = 0;
 let lastTime = performance.now();
@@ -199,33 +274,114 @@ let currentHands = []; // Latest MediaPipe hands data
 const uiHands = document.getElementById('ui-hands');
 const uiFps = document.getElementById('ui-fps');
 const uiMode = document.getElementById('ui-mode');
+const controls = document.getElementById('controls');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const fsIconExpand = document.getElementById('fsIconExpand');
+const fsIconCompress = document.getElementById('fsIconCompress');
+const fsText = document.getElementById('fsText');
 
 /**
- * INITIALIZATION
+ * PROJECTION / ASPECT-RATIO CALCULATION
+ * Fits video onto screen preserving exact aspect ratio without any stretching (cover fit)
+ */
+function updateProjection() {
+    const vWidth = videoElement.videoWidth || 1280;
+    const vHeight = videoElement.videoHeight || 720;
+    const canvasAspect = width / height;
+    const videoAspect = vWidth / vHeight;
+
+    if (canvasAspect > videoAspect) {
+        // Screen is wider than video aspect ratio
+        renderWidth = width;
+        renderHeight = width / videoAspect;
+        offsetX = 0;
+        offsetY = (height - renderHeight) / 2;
+    } else {
+        // Screen is taller than video aspect ratio (e.g. phones in portrait)
+        renderHeight = height;
+        renderWidth = height * videoAspect;
+        offsetX = (width - renderWidth) / 2;
+        offsetY = 0;
+    }
+}
+
+/**
+ * INITIALIZATION & RESIZING
  */
 function resize() {
     width = window.innerWidth;
     height = window.innerHeight;
     mainCanvas.width = width;
     mainCanvas.height = height;
+
+    updateProjection();
     
-    const dotSpacing = Math.ceil(width / targetGridWidth);
-    const smallWidth = Math.floor(width / dotSpacing);
-    const smallHeight = Math.floor(height / dotSpacing);
+    // Adaptive dotSpacing ensuring high resolution and smooth 60 FPS on any phone or desktop
+    dotSpacing = Math.max(5, Math.ceil(width / targetGridWidth));
+    const smallWidth = Math.ceil(width / dotSpacing);
+    const smallHeight = Math.ceil(height / dotSpacing);
     
     offscreenCanvas.width = smallWidth;
     offscreenCanvas.height = smallHeight;
 }
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 resize();
 
 // Start button click triggers camera initialization
 document.getElementById('startBtn').addEventListener('click', () => {
     document.getElementById('startOverlay').classList.add('hidden');
     document.getElementById('hud').classList.remove('hidden');
+    controls.classList.remove('hidden');
     initMediaPipe();
     requestAnimationFrame(renderLoop);
 });
+
+/**
+ * FULLSCREEN TOGGLE
+ */
+function isFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+}
+
+function updateFullscreenUI() {
+    if (isFullscreen()) {
+        fsIconExpand.classList.add('hidden');
+        fsIconCompress.classList.remove('hidden');
+        fsText.innerText = 'EXIT FULL';
+    } else {
+        fsIconExpand.classList.remove('hidden');
+        fsIconCompress.classList.add('hidden');
+        fsText.innerText = 'FULLSCREEN';
+    }
+}
+
+function toggleFullScreen() {
+    const doc = document;
+    const docEl = document.documentElement;
+
+    if (!isFullscreen()) {
+        const req = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+        if (req) {
+            req.call(docEl).catch(err => {
+                console.warn('Fullscreen request failed:', err);
+            });
+        }
+    } else {
+        const exit = doc.exitFullscreen || doc.webkitExitFullscreen || doc.mozCancelFullScreen || doc.msExitFullscreen;
+        if (exit) {
+            exit.call(doc).catch(err => {
+                console.warn('Exit fullscreen failed:', err);
+            });
+        }
+    }
+}
+
+fullscreenBtn.addEventListener('click', toggleFullScreen);
+document.addEventListener('fullscreenchange', () => { updateFullscreenUI(); resize(); });
+document.addEventListener('webkitfullscreenchange', () => { updateFullscreenUI(); resize(); });
+document.addEventListener('mozfullscreenchange', () => { updateFullscreenUI(); resize(); });
+document.addEventListener('MSFullscreenChange', () => { updateFullscreenUI(); resize(); });
 
 /**
  * MATH & UTILITIES
@@ -234,8 +390,12 @@ function getDist(p1, p2) {
     return Math.hypot(p1.x - p2.x, p1.y - p2.y);
 }
 
+// Maps normalized MediaPipe landmark coordinates directly to the covered canvas coordinate space
 function mapToCanvas(point) {
-    return { x: point.x * width, y: point.y * height };
+    return {
+        x: offsetX + point.x * renderWidth,
+        y: offsetY + point.y * renderHeight
+    };
 }
 
 /**
@@ -256,16 +416,21 @@ function renderLoop(timestamp) {
         lastFpsTime = timestamp;
     }
 
+    // Keep projection synced with actual video stream dimensions
+    if (videoElement.readyState >= videoElement.HAVE_METADATA) {
+        updateProjection();
+    }
+
     // Clear the canvas fully each frame (no motion blur)
     ctx.clearRect(0, 0, width, height);
 
-    // 1. Draw base camera feed with a slight saturation boost
+    // 1. Draw base camera feed without any stretching, with vibrant saturation
     if (videoElement.readyState >= videoElement.HAVE_CURRENT_DATA) {
         ctx.filter = 'saturate(1.35) contrast(1.05)';
-        ctx.drawImage(videoElement, 0, 0, width, height);
+        ctx.drawImage(videoElement, offsetX, offsetY, renderWidth, renderHeight);
         ctx.filter = 'none';
     } else {
-        ctx.fillStyle = '#1e222b';
+        ctx.fillStyle = '#0c0d12';
         ctx.fillRect(0, 0, width, height);
     }
 
@@ -277,7 +442,7 @@ function renderLoop(timestamp) {
         const h1 = currentHands[0];
         const h2 = currentHands[1];
         
-        // Get thumb tips (4) and index finger tips (8)
+        // Get thumb tips (4) and index finger tips (8) mapped to non-stretched canvas coordinates
         const pt1_thumb = mapToCanvas(h1[4]);
         const pt1_index = mapToCanvas(h1[8]);
         const pt2_thumb = mapToCanvas(h2[4]);
@@ -285,7 +450,7 @@ function renderLoop(timestamp) {
 
         if (pt1_thumb && pt1_index && pt2_thumb && pt2_index) {
             // Keep anatomical order: index1 -> thumb1 -> thumb2 -> index2 -> index1
-            // This naturally crosses when one hand is flipped upside down, forming a double triangle.
+            // Naturally crosses into a double triangle when one hand is flipped upside down
             quadPoints = [pt1_index, pt1_thumb, pt2_thumb, pt2_index];
             hasFrame = true;
         }
@@ -294,7 +459,7 @@ function renderLoop(timestamp) {
     uiMode.innerText = hasFrame ? "L-Frame" : "Normal";
     uiHands.innerText = currentHands.length;
 
-    // 2. If L-Frame is active, draw the yellow clipped background (`#f5b813`) and run halftone inside
+    // 2. If L-Frame is active, clip the yellow background (`#f5b813`) and render high-contrast halftone inside
     if (hasFrame && quadPoints.length === 4 && videoElement.readyState >= videoElement.HAVE_CURRENT_DATA) {
         ctx.save();
         
@@ -324,14 +489,19 @@ function renderLoop(timestamp) {
         minY = Math.max(0, minY);
         maxY = Math.min(height, maxY);
 
-        // Draw offscreen downsampled image
-        offscreenCtx.drawImage(videoElement, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+        // Draw offscreen downsampled image with exact covered positioning
+        offscreenCtx.drawImage(
+            videoElement, 
+            offsetX / dotSpacing, 
+            offsetY / dotSpacing, 
+            renderWidth / dotSpacing, 
+            renderHeight / dotSpacing
+        );
         
         const smallW = offscreenCanvas.width;
         const smallH = offscreenCanvas.height;
         const imgData = offscreenCtx.getImageData(0, 0, smallW, smallH).data;
         
-        const dotSpacing = Math.ceil(width / targetGridWidth);
         ctx.fillStyle = '#1a3683'; // Deep Indigo Blue dots
 
         const startX = Math.floor(minX / dotSpacing);
@@ -401,7 +571,7 @@ function renderLoop(timestamp) {
         }
         ctx.stroke();
         
-        // Connect tips with a clean thin dashed/subtle line to indicate the finger bounds
+        // Connect tips with a subtle dashed line to indicate finger bounds
         ctx.beginPath();
         const thumbTip = mapToCanvas(hand[4]);
         const indexTip = mapToCanvas(hand[8]);
@@ -449,12 +619,13 @@ function initMediaPipe() {
         currentHands = results.multiHandLandmarks || [];
     });
 
+    const isPortrait = window.innerHeight > window.innerWidth;
     const camera = new Camera(videoElement, {
         onFrame: async () => {
             await hands.send({image: videoElement});
         },
-        width: 1280,
-        height: 720,
+        width: isPortrait ? 720 : 1280,
+        height: isPortrait ? 1280 : 720,
         facingMode: 'user'
     });
     
