@@ -35,6 +35,7 @@
             height: 100vh;
             height: 100dvh;
             overflow: hidden;
+            background-color: #0c0d12;
         }
 
         .input_video {
@@ -60,7 +61,7 @@
             z-index: 5;
         }
 
-        /* Top Controls (Fullscreen button) */
+        /* Top Controls (Fullscreen and Fit/Fill buttons) */
         #controls {
             position: absolute;
             top: max(16px, env(safe-area-inset-top, 16px));
@@ -68,14 +69,14 @@
             z-index: 15;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
 
         .control-btn {
             background: rgba(12, 13, 18, 0.85);
             border: 1px solid rgba(255, 255, 255, 0.15);
             color: rgba(255, 255, 255, 0.9);
-            padding: 8px 14px;
+            padding: 8px 12px;
             border-radius: 4px;
             cursor: pointer;
             font-family: monospace;
@@ -83,7 +84,7 @@
             letter-spacing: 1px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             transition: all 0.2s ease;
@@ -110,7 +111,7 @@
             z-index: 10;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
             pointer-events: none;
             font-family: monospace;
             font-size: 11px;
@@ -121,12 +122,12 @@
             background: rgba(12, 13, 18, 0.85);
             border: 1px solid rgba(255, 255, 255, 0.08);
             color: rgba(255, 255, 255, 0.6);
-            padding: 8px 12px;
+            padding: 6px 10px;
             border-radius: 4px;
             display: flex;
             justify-content: space-between;
-            gap: 16px;
-            min-width: 140px;
+            gap: 12px;
+            min-width: 125px;
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
         }
@@ -203,7 +204,7 @@
         <button class="start-btn" id="startBtn">Enter Experience</button>
     </div>
 
-    <!-- UI Controls (Fullscreen button) -->
+    <!-- UI Controls (Fullscreen & Fit/Fill buttons) -->
     <div id="controls" class="hidden">
         <button id="fullscreenBtn" class="control-btn" aria-label="Toggle Fullscreen" title="Toggle Fullscreen">
             <svg id="fsIconExpand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -212,7 +213,15 @@
             <svg id="fsIconCompress" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
             </svg>
-            <span id="fsText">FULLSCREEN</span>
+            <span id="fsText">FULL</span>
+        </button>
+        <button id="fitBtn" class="control-btn" aria-label="Toggle Fit Mode" title="Toggle Fit / Fill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="3" y1="9" x2="21" y2="9"/>
+                <line x1="3" y1="15" x2="21" y2="15"/>
+            </svg>
+            <span id="fitText">FIT</span>
         </button>
     </div>
 
@@ -256,7 +265,11 @@ let height = window.innerHeight;
 const targetGridWidth = 240;
 let dotSpacing = 7;
 
-// Aspect ratio / Cover projection parameters
+// Default fitMode:
+// On portrait screens (phones), default to 'fit' so the user is never cropped or zoomed in!
+let fitMode = (window.innerHeight > window.innerWidth) ? 'fit' : 'fill';
+
+// Aspect ratio / Projection parameters
 let renderWidth = width;
 let renderHeight = height;
 let offsetX = 0;
@@ -269,6 +282,8 @@ let lastFpsTime = performance.now();
 let currentFps = 0;
 
 let currentHands = []; // Latest MediaPipe hands data
+let handsDetector = null;
+let isSendingFrame = false;
 
 // UI Elements
 const uiHands = document.getElementById('ui-hands');
@@ -279,29 +294,47 @@ const fullscreenBtn = document.getElementById('fullscreenBtn');
 const fsIconExpand = document.getElementById('fsIconExpand');
 const fsIconCompress = document.getElementById('fsIconCompress');
 const fsText = document.getElementById('fsText');
+const fitBtn = document.getElementById('fitBtn');
+const fitText = document.getElementById('fitText');
 
 /**
  * PROJECTION / ASPECT-RATIO CALCULATION
- * Fits video onto screen preserving exact aspect ratio without any stretching (cover fit)
+ * Computes exact render bounds based on 'fit' (zero zoom) or 'fill' (edge-to-edge cover)
  */
 function updateProjection() {
-    const vWidth = videoElement.videoWidth || 1280;
-    const vHeight = videoElement.videoHeight || 720;
+    const vWidth = videoElement.videoWidth || (window.innerHeight > window.innerWidth ? 720 : 1280);
+    const vHeight = videoElement.videoHeight || (window.innerHeight > window.innerWidth ? 1280 : 720);
     const canvasAspect = width / height;
     const videoAspect = vWidth / vHeight;
 
-    if (canvasAspect > videoAspect) {
-        // Screen is wider than video aspect ratio
-        renderWidth = width;
-        renderHeight = width / videoAspect;
-        offsetX = 0;
-        offsetY = (height - renderHeight) / 2;
+    if (fitMode === 'fill') {
+        // COVER: Fills the entire screen
+        if (canvasAspect > videoAspect) {
+            renderWidth = width;
+            renderHeight = width / videoAspect;
+            offsetX = 0;
+            offsetY = (height - renderHeight) / 2;
+        } else {
+            renderHeight = height;
+            renderWidth = height * videoAspect;
+            offsetX = (width - renderWidth) / 2;
+            offsetY = 0;
+        }
     } else {
-        // Screen is taller than video aspect ratio (e.g. phones in portrait)
-        renderHeight = height;
-        renderWidth = height * videoAspect;
-        offsetX = (width - renderWidth) / 2;
-        offsetY = 0;
+        // FIT: Shows the entire camera view without ANY zooming or cropping!
+        if (canvasAspect > videoAspect) {
+            // Screen is wider than video (pillars on sides)
+            renderHeight = height;
+            renderWidth = height * videoAspect;
+            offsetX = (width - renderWidth) / 2;
+            offsetY = 0;
+        } else {
+            // Screen is taller than video (e.g. phone in portrait: bars on top & bottom)
+            renderWidth = width;
+            renderHeight = width / videoAspect;
+            offsetX = 0;
+            offsetY = (height - renderHeight) / 2;
+        }
     }
 }
 
@@ -328,13 +361,18 @@ window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 resize();
 
-// Start button click triggers camera initialization
-document.getElementById('startBtn').addEventListener('click', () => {
-    document.getElementById('startOverlay').classList.add('hidden');
-    document.getElementById('hud').classList.remove('hidden');
-    controls.classList.remove('hidden');
-    initMediaPipe();
-    requestAnimationFrame(renderLoop);
+/**
+ * FIT MODE TOGGLE
+ */
+function updateFitUI() {
+    fitText.innerText = fitMode.toUpperCase();
+}
+updateFitUI();
+
+fitBtn.addEventListener('click', () => {
+    fitMode = (fitMode === 'fit') ? 'fill' : 'fit';
+    updateFitUI();
+    updateProjection();
 });
 
 /**
@@ -348,11 +386,11 @@ function updateFullscreenUI() {
     if (isFullscreen()) {
         fsIconExpand.classList.add('hidden');
         fsIconCompress.classList.remove('hidden');
-        fsText.innerText = 'EXIT FULL';
+        fsText.innerText = 'EXIT';
     } else {
         fsIconExpand.classList.remove('hidden');
         fsIconCompress.classList.add('hidden');
-        fsText.innerText = 'FULLSCREEN';
+        fsText.innerText = 'FULL';
     }
 }
 
@@ -383,6 +421,15 @@ document.addEventListener('webkitfullscreenchange', () => { updateFullscreenUI()
 document.addEventListener('mozfullscreenchange', () => { updateFullscreenUI(); resize(); });
 document.addEventListener('MSFullscreenChange', () => { updateFullscreenUI(); resize(); });
 
+// Start button click triggers camera initialization
+document.getElementById('startBtn').addEventListener('click', () => {
+    document.getElementById('startOverlay').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    controls.classList.remove('hidden');
+    initMediaPipe();
+    requestAnimationFrame(renderLoop);
+});
+
 /**
  * MATH & UTILITIES
  */
@@ -390,7 +437,7 @@ function getDist(p1, p2) {
     return Math.hypot(p1.x - p2.x, p1.y - p2.y);
 }
 
-// Maps normalized MediaPipe landmark coordinates directly to the covered canvas coordinate space
+// Maps normalized MediaPipe landmark coordinates directly to the canvas coordinate space
 function mapToCanvas(point) {
     return {
         x: offsetX + point.x * renderWidth,
@@ -421,11 +468,28 @@ function renderLoop(timestamp) {
         updateProjection();
     }
 
+    // Send frame to MediaPipe if ready
+    if (!isSendingFrame && handsDetector && videoElement.readyState >= videoElement.HAVE_CURRENT_DATA) {
+        isSendingFrame = true;
+        handsDetector.send({ image: videoElement })
+            .catch(err => console.error(err))
+            .finally(() => { isSendingFrame = false; });
+    }
+
     // Clear the canvas fully each frame (no motion blur)
     ctx.clearRect(0, 0, width, height);
 
-    // 1. Draw base camera feed without any stretching, with vibrant saturation
+    // 1. Draw base camera feed
     if (videoElement.readyState >= videoElement.HAVE_CURRENT_DATA) {
+        // If in FIT mode on a phone screen, render an ambient blurred background in the margins
+        if (fitMode === 'fit' && (offsetX > 0 || offsetY > 0)) {
+            ctx.save();
+            ctx.filter = 'blur(40px) brightness(0.25) saturate(1.2)';
+            ctx.drawImage(videoElement, 0, 0, width, height);
+            ctx.restore();
+        }
+
+        // Draw crisp main video feed
         ctx.filter = 'saturate(1.35) contrast(1.05)';
         ctx.drawImage(videoElement, offsetX, offsetY, renderWidth, renderHeight);
         ctx.filter = 'none';
@@ -442,7 +506,7 @@ function renderLoop(timestamp) {
         const h1 = currentHands[0];
         const h2 = currentHands[1];
         
-        // Get thumb tips (4) and index finger tips (8) mapped to non-stretched canvas coordinates
+        // Get thumb tips (4) and index finger tips (8) mapped to canvas coordinates
         const pt1_thumb = mapToCanvas(h1[4]);
         const pt1_index = mapToCanvas(h1[8]);
         const pt2_thumb = mapToCanvas(h2[4]);
@@ -489,7 +553,8 @@ function renderLoop(timestamp) {
         minY = Math.max(0, minY);
         maxY = Math.min(height, maxY);
 
-        // Draw offscreen downsampled image with exact covered positioning
+        // Draw offscreen downsampled image with exact positioning
+        offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
         offscreenCtx.drawImage(
             videoElement, 
             offsetX / dotSpacing, 
@@ -601,35 +666,69 @@ function renderLoop(timestamp) {
 }
 
 /**
- * MEDIAPIPE INITIALIZATION
+ * CAMERA & MEDIAPIPE INITIALIZATION
  */
+async function startCamera() {
+    const isPortrait = window.innerHeight > window.innerWidth;
+    
+    // Request flexible constraints suitable for mobile phones in portrait & desktop
+    const constraintsList = [
+        {
+            audio: false,
+            video: {
+                facingMode: 'user',
+                width: { ideal: isPortrait ? 720 : 1280 },
+                height: { ideal: isPortrait ? 1280 : 720 },
+                aspectRatio: { ideal: isPortrait ? (9 / 16) : (16 / 9) }
+            }
+        },
+        {
+            audio: false,
+            video: { facingMode: 'user' }
+        },
+        {
+            audio: false,
+            video: true
+        }
+    ];
+
+    let stream = null;
+    for (const c of constraintsList) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(c);
+            if (stream) break;
+        } catch (e) {
+            console.warn('Constraint fallback:', e);
+        }
+    }
+
+    if (!stream) {
+        alert('Camera access denied or unavailable. Please ensure permissions are granted.');
+        return;
+    }
+
+    videoElement.srcObject = stream;
+    await videoElement.play();
+    updateProjection();
+}
+
 function initMediaPipe() {
-    const hands = new Hands({locateFile: (file) => {
+    handsDetector = new Hands({locateFile: (file) => {
         return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
     }});
 
-    hands.setOptions({
+    handsDetector.setOptions({
         maxNumHands: 2,
         modelComplexity: 1, 
         minDetectionConfidence: 0.7,
         minTrackingConfidence: 0.7
     });
 
-    hands.onResults((results) => {
+    handsDetector.onResults((results) => {
         currentHands = results.multiHandLandmarks || [];
     });
 
-    const isPortrait = window.innerHeight > window.innerWidth;
-    const camera = new Camera(videoElement, {
-        onFrame: async () => {
-            await hands.send({image: videoElement});
-        },
-        width: isPortrait ? 720 : 1280,
-        height: isPortrait ? 1280 : 720,
-        facingMode: 'user'
-    });
-    
-    camera.start();
+    startCamera();
 }
 </script>
 </body>
